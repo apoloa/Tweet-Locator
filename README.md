@@ -1,4 +1,5 @@
-[logo] 
+[logo]:https://github.com/wholedev/Tweet-Locator/blob/master/app_logo.png
+![alt text][logo]
 # Tweet Locator
 
 ## What is this
