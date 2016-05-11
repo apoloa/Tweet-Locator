@@ -1,34 +1,54 @@
 package com.adrianpolo.twlocator.activities;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.support.v7.app.ActionBarActivity;
+import android.support.design.widget.Snackbar;
+import android.support.v4.app.ActivityCompat;
+import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.view.View;
-import android.widget.Button;
 import android.widget.Toast;
 
 import com.adrianpolo.twlocator.R;
+import com.adrianpolo.twlocator.model.db.DBConstants;
+import com.adrianpolo.twlocator.model.db.DBHelper;
 import com.adrianpolo.twlocator.util.NetworkHelper;
+import com.adrianpolo.twlocator.util.location.GeoCoderHelper;
+import com.adrianpolo.twlocator.util.location.LocationHelper;
+import com.adrianpolo.twlocator.util.location.LocationHelper.LocationHelperListener;
 import com.adrianpolo.twlocator.util.twitter.ConnectTwitterTask;
 import com.adrianpolo.twlocator.util.twitter.TwitterHelper;
+import com.google.android.gms.maps.CameraUpdate;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.MapFragment;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.model.CameraPosition;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
 
 import java.lang.ref.WeakReference;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
-import butterknife.Bind;
 import butterknife.ButterKnife;
+import rx.Observable;
+import rx.Subscriber;
 import twitter4j.AccountSettings;
 import twitter4j.AsyncTwitter;
 import twitter4j.Category;
 import twitter4j.DirectMessage;
 import twitter4j.Friendship;
+import twitter4j.GeoLocation;
 import twitter4j.IDs;
 import twitter4j.Location;
 import twitter4j.OEmbed;
 import twitter4j.PagableResponseList;
 import twitter4j.Place;
+import twitter4j.Query;
 import twitter4j.QueryResult;
 import twitter4j.RateLimitStatus;
 import twitter4j.Relationship;
@@ -48,23 +68,34 @@ import twitter4j.auth.OAuth2Token;
 import twitter4j.auth.RequestToken;
 
 
-public class MainActivity extends ActionBarActivity implements ConnectTwitterTask.OnConnectTwitterListener {
+public class MainActivity extends AppCompatActivity implements
+        ConnectTwitterTask.OnConnectTwitterListener, LocationHelperListener, OnMapReadyCallback {
 
     ConnectTwitterTask twitterTask;
+    LocationHelper mLocationHelper;
+    GeoCoderHelper mGeoCoderHelper;
+    private int mMaxTweetsForLocation = 5;
+    private GoogleMap mMap;
     private static final int URL_LOADER = 0;
-
-    @Bind(R.id.button)
-    Button button;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // Configure Database
+        DBHelper.configure(DBConstants.DB_NAME, getApplicationContext());
+
         ButterKnife.bind(this);
+
+        MapFragment mapFragment = (MapFragment) getFragmentManager().findFragmentById(R.id.map);
+        mapFragment.getMapAsync(this);
+
 
         getSupportActionBar().setDisplayShowHomeEnabled(true);
 
+        mLocationHelper = new LocationHelper(this, this);
+        mGeoCoderHelper = new GeoCoderHelper(getApplicationContext(), Locale.getDefault(), 5);
         if (NetworkHelper.isNetworkConnectionOK(new WeakReference<>(getApplication()))) {
             twitterTask = new ConnectTwitterTask(this);
             twitterTask.setListener(this);
@@ -74,16 +105,9 @@ public class MainActivity extends ActionBarActivity implements ConnectTwitterTas
             Toast.makeText(this, getString(R.string.error_network), Toast.LENGTH_LONG).show();
 
         }
-
-        button.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                launchTwitter();
-            }
-        });
     }
 
-    private void launchTwitter() {
+    private void launchTwitter(final String nameCity, final double latitude, final double longitude, long idMaxId) {
         AsyncTwitter twitter = new TwitterHelper(this).getAsyncTwitter();
         twitter.addListener(new TwitterListener() {
             @Override
@@ -98,9 +122,7 @@ public class MainActivity extends ActionBarActivity implements ConnectTwitterTas
 
             @Override
             public void gotUserTimeline(ResponseList<Status> statuses) {
-                for (Status s: statuses) {
-                    Log.d("Twitter", "tweet: " + s.getText());
-                }
+
             }
 
             @Override
@@ -145,7 +167,23 @@ public class MainActivity extends ActionBarActivity implements ConnectTwitterTas
 
             @Override
             public void searched(QueryResult queryResult) {
+                long idMaxId = -1;
+                int maxProccessed = 0;
 
+                for (Status tweet : queryResult.getTweets()) {
+                    Log.d("Twitter ID", "" + tweet.getId());
+                    if (idMaxId == -1 || idMaxId > tweet.getId()) {
+                        Log.d("Changint IDMax", tweet.getId() + " --> " + idMaxId);
+                        idMaxId = tweet.getId();
+                    }
+                    if (tweet.getGeoLocation() != null) {
+                        Log.d("Twitter With Location", "Twitter: " + tweet.getText() + "Location " + tweet.getGeoLocation());
+                        maxProccessed += 1;
+                    }
+                }
+                if (maxProccessed < mMaxTweetsForLocation) {
+                    launchTwitter(nameCity, latitude, longitude, idMaxId);
+                }
             }
 
             @Override
@@ -558,7 +596,14 @@ public class MainActivity extends ActionBarActivity implements ConnectTwitterTas
 
             }
         });
-        twitter.getUserTimeline();
+
+        Query query = new Query().geoCode(new GeoLocation(latitude, longitude), 10, Query.KILOMETERS.toString());
+        query.count(100);
+        if (idMaxId != -1) {
+            Log.d("Twitter Query", "Executing query with MaxId" + idMaxId);
+            query.setMaxId(idMaxId);
+        }
+        twitter.search(query);
     }
 
     @Override
@@ -583,11 +628,95 @@ public class MainActivity extends ActionBarActivity implements ConnectTwitterTas
     }
 
     @Override
-    public void twitterConnectionFinished() {
-        Toast.makeText(this, getString(R.string.twiiter_auth_ok), Toast.LENGTH_SHORT).show();
-
+    protected void onStop() {
+        mLocationHelper.disconnect();
+        super.onStop();
 
     }
+
+    @Override
+    protected void onStart() {
+        mLocationHelper.connect();
+        super.onStart();
+    }
+
+    @Override
+    public void twitterConnectionFinished() {
+        Snackbar.make(findViewById(android.R.id.content), getString(R.string.twitter_auth_ok),
+                Snackbar.LENGTH_SHORT).show();
+    }
+
+    @Override
+    public void onLocation(double longitude, double latitude) {
+        Log.d("OnLocation", "Longitude: " + longitude + " Latitude " + latitude);
+        if (mMap != null) {
+            LatLng latLng = new LatLng(latitude, longitude);
+            CameraUpdate cameraUpdate = CameraUpdateFactory.newLatLngZoom(latLng, 1);
+            mMap.animateCamera(cameraUpdate);
+        }
+    }
+
+    @Override
+    public void onMapReady(GoogleMap googleMap) {
+        mMap = googleMap;
+        //mMap.setMapType(GoogleMap.MAP_TYPE_HYBRID);
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) !=
+                PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this,
+                Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        mMap.setMyLocationEnabled(true);
+        mMap.setOnInfoWindowCloseListener(new GoogleMap.OnInfoWindowCloseListener() {
+            @Override
+            public void onInfoWindowClose(Marker marker) {
+                marker.remove();
+            }
+        });
+        getObservableMaps().debounce(3, TimeUnit.SECONDS).subscribe(new Subscriber<LatLng>() {
+            @Override
+            public void onCompleted() {
+
+            }
+
+            @Override
+            public void onError(Throwable e) {
+
+            }
+
+            @Override
+            public void onNext(LatLng latLng) {
+                Log.d("Camera Changed", "Longitude:" + latLng.longitude +
+                        " Latitude:" + latLng.latitude);
+
+                String city = mGeoCoderHelper.getNameOfCity(latLng);
+                if (city != null && !city.isEmpty()) {
+                    launchTwitter(city, latLng.latitude, latLng.longitude, -1);
+                }
+            }
+        });
+    }
+
+
+    public Observable<LatLng> getObservableMaps() {
+        return Observable.create(new Observable.OnSubscribe<LatLng>() {
+            @Override
+            public void call(final Subscriber<? super LatLng> subscriber) {
+                try {
+                    if (!subscriber.isUnsubscribed()) {
+                        mMap.setOnCameraChangeListener(new GoogleMap.OnCameraChangeListener() {
+                            @Override
+                            public void onCameraChange(CameraPosition cameraPosition) {
+                                subscriber.onNext(cameraPosition.target);
+                            }
+                        });
+                    }
+                } catch (Exception e) {
+                    subscriber.onError(e);
+                }
+            }
+        });
+    }
+
 
 }
 
