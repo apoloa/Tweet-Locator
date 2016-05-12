@@ -13,6 +13,7 @@ public class DBHelper extends SQLiteOpenHelper {
 
     public static final String[] CREATE_DATABASE_SCRIPTS = {
             DBConstants.SQL_CREATE_TWEET_TABLE,
+            DBConstants.SQL_CREATE_CITY_TABLE
     };
 
     private static DBHelper sInstance;

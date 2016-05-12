@@ -3,7 +3,6 @@ package com.adrianpolo.twlocator.util.location;
 import android.content.Context;
 import android.location.Address;
 import android.location.Geocoder;
-import android.util.Log;
 
 import com.google.android.gms.maps.model.LatLng;
 
@@ -21,11 +20,11 @@ public class GeoCoderHelper {
     }
 
 
-    public String getNameOfCity(LatLng position) {
+    public String getInfoForPosition(LatLng position) {
         for (int i = 0; i < reintents; i++) {
-            String result = getNameOfCityFromGeoCoder(position);
-            if (result != null) {
-                return result;
+            String identifiers = getNameOfCityFromGeoCoder(position);
+            if (identifiers != null) {
+                return identifiers;
             }
         }
         return null;
@@ -35,18 +34,28 @@ public class GeoCoderHelper {
         try {
             List<Address> addresses = geocoder.
                     getFromLocation(position.latitude, position.longitude, 1);
-            Log.d("Addresses", "" + addresses.size());
             if (addresses.size() > 0) {
-                Log.d("CountryName", addresses.get(0).getCountryName());
-                String cityName = addresses.get(0).getAddressLine(0);
-                Log.d("City", addresses.get(0).getLocality());
-                return cityName;
+                return addresses.get(0).getLocality();
             }
-            return "";
         } catch (IOException e) {
             e.printStackTrace();
-            return null;
+
         }
+        return null;
+    }
+
+    public LatLng getLatLngFromName(String name){
+        List<Address> addresses = null;
+        try {
+            addresses = geocoder.getFromLocationName(name, 1);
+            if (addresses.size() > 0) {
+                return new LatLng(addresses.get(0).getLatitude(),addresses.get(0).getLongitude());
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 
 }

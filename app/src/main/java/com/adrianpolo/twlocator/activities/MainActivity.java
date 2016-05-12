@@ -2,18 +2,26 @@ package com.adrianpolo.twlocator.activities;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
+import android.support.v4.view.MenuItemCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.SearchView;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.Toast;
 
 import com.adrianpolo.twlocator.R;
+import com.adrianpolo.twlocator.model.City;
+import com.adrianpolo.twlocator.model.Tweet;
 import com.adrianpolo.twlocator.model.db.DBConstants;
 import com.adrianpolo.twlocator.model.db.DBHelper;
+import com.adrianpolo.twlocator.model.db.dao.CityDAO;
+import com.adrianpolo.twlocator.model.db.dao.TweetDAO;
 import com.adrianpolo.twlocator.util.NetworkHelper;
 import com.adrianpolo.twlocator.util.location.GeoCoderHelper;
 import com.adrianpolo.twlocator.util.location.LocationHelper;
@@ -25,11 +33,15 @@ import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.MapFragment;
 import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.model.BitmapDescriptor;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.CameraPosition;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
+import com.google.android.gms.maps.model.MarkerOptions;
 
 import java.lang.ref.WeakReference;
+import java.net.URL;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -69,7 +81,8 @@ import twitter4j.auth.RequestToken;
 
 
 public class MainActivity extends AppCompatActivity implements
-        ConnectTwitterTask.OnConnectTwitterListener, LocationHelperListener, OnMapReadyCallback {
+        ConnectTwitterTask.OnConnectTwitterListener, LocationHelperListener, OnMapReadyCallback,
+        SearchView.OnQueryTextListener {
 
     ConnectTwitterTask twitterTask;
     LocationHelper mLocationHelper;
@@ -91,9 +104,6 @@ public class MainActivity extends AppCompatActivity implements
         MapFragment mapFragment = (MapFragment) getFragmentManager().findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
 
-
-        getSupportActionBar().setDisplayShowHomeEnabled(true);
-
         mLocationHelper = new LocationHelper(this, this);
         mGeoCoderHelper = new GeoCoderHelper(getApplicationContext(), Locale.getDefault(), 5);
         if (NetworkHelper.isNetworkConnectionOK(new WeakReference<>(getApplication()))) {
@@ -107,8 +117,9 @@ public class MainActivity extends AppCompatActivity implements
         }
     }
 
-    private void launchTwitter(final String nameCity, final double latitude, final double longitude, long idMaxId) {
-        AsyncTwitter twitter = new TwitterHelper(this).getAsyncTwitter();
+
+    private void launchTwitter(final City city, final double latitude, final double longitude, long idMaxId, final int importedElements) {
+        final AsyncTwitter twitter = new TwitterHelper(this).getAsyncTwitter();
         twitter.addListener(new TwitterListener() {
             @Override
             public void gotMentions(ResponseList<Status> statuses) {
@@ -168,21 +179,26 @@ public class MainActivity extends AppCompatActivity implements
             @Override
             public void searched(QueryResult queryResult) {
                 long idMaxId = -1;
-                int maxProccessed = 0;
-
+                int maxProccessed = importedElements;
+                TweetDAO tweetDAO = new TweetDAO();
                 for (Status tweet : queryResult.getTweets()) {
-                    Log.d("Twitter ID", "" + tweet.getId());
                     if (idMaxId == -1 || idMaxId > tweet.getId()) {
-                        Log.d("Changint IDMax", tweet.getId() + " --> " + idMaxId);
                         idMaxId = tweet.getId();
                     }
                     if (tweet.getGeoLocation() != null) {
-                        Log.d("Twitter With Location", "Twitter: " + tweet.getText() + "Location " + tweet.getGeoLocation());
-                        maxProccessed += 1;
+                        if (tweetDAO.tweetForIdTwitter(tweet.getId()) == null) {
+                            maxProccessed += 1;
+                            Tweet mTweet = new Tweet(tweet.getUser().getName(),
+                                    tweet.getText(), tweet.getUser().getProfileImageURL(),
+                                    tweet.getGeoLocation().getLatitude(),
+                                    tweet.getGeoLocation().getLongitude(), city.getId(), tweet.getId());
+                            tweetDAO.insert(mTweet);
+                        }
                     }
                 }
+                updateMap(city);
                 if (maxProccessed < mMaxTweetsForLocation) {
-                    launchTwitter(nameCity, latitude, longitude, idMaxId);
+                    launchTwitter(city, latitude, longitude, idMaxId, maxProccessed);
                 }
             }
 
@@ -609,7 +625,9 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.menu_main, menu);
-
+        MenuItem searchItem = menu.findItem(R.id.action_search);
+        SearchView searchView = (SearchView) MenuItemCompat.getActionView(searchItem);
+        searchView.setOnQueryTextListener(this);
         return super.onCreateOptionsMenu(menu);
     }
 
@@ -651,7 +669,7 @@ public class MainActivity extends AppCompatActivity implements
         Log.d("OnLocation", "Longitude: " + longitude + " Latitude " + latitude);
         if (mMap != null) {
             LatLng latLng = new LatLng(latitude, longitude);
-            CameraUpdate cameraUpdate = CameraUpdateFactory.newLatLngZoom(latLng, 1);
+            CameraUpdate cameraUpdate = CameraUpdateFactory.newLatLngZoom(latLng, 10);
             mMap.animateCamera(cameraUpdate);
         }
     }
@@ -687,15 +705,76 @@ public class MainActivity extends AppCompatActivity implements
             public void onNext(LatLng latLng) {
                 Log.d("Camera Changed", "Longitude:" + latLng.longitude +
                         " Latitude:" + latLng.latitude);
+                if (NetworkHelper.isNetworkConnectionOK(new WeakReference<>(getApplication()))) {
+                    String data = mGeoCoderHelper.getInfoForPosition(latLng);
+                    if (data != null && !data.isEmpty() ) {
+                        CityDAO cityDAO = new CityDAO();
+                        City city = cityDAO.findByName(data.trim().toUpperCase());
+                        if (city == null) {
 
-                String city = mGeoCoderHelper.getNameOfCity(latLng);
-                if (city != null && !city.isEmpty()) {
-                    launchTwitter(city, latLng.latitude, latLng.longitude, -1);
+                            city = new City(data.trim().toUpperCase(), latLng.latitude, latLng.longitude);
+                            cityDAO.insert(city);
+                        }else{
+                            updateMap(city);
+                        }
+
+                        launchTwitter(city, latLng.latitude, latLng.longitude, -1, 0);
+                    }
                 }
             }
         });
     }
 
+    public void updateMap(final City city) {
+        TweetDAO tweetDAO = new TweetDAO();
+        for (final Tweet tweet : tweetDAO.tweetsForCity(city.getId())) {
+            Thread thread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+
+                    final BitmapDescriptor bitmapDefault = BitmapDescriptorFactory.fromResource(R.drawable.hue);
+                    final LatLng latitem = new LatLng(tweet.getLatitude(), tweet.getLongitude());
+
+                    try {
+                        URL url;
+                        if (NetworkHelper.isNetworkConnectionOK(new WeakReference<>(getApplication()))) {
+                            url = new URL(tweet.getUrlImage());
+                            final Bitmap bmp = BitmapFactory.decodeStream(url.openConnection().getInputStream());
+                            final BitmapDescriptor bitmapUrl = BitmapDescriptorFactory.fromBitmap(bmp);
+
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    mMap.addMarker(new MarkerOptions()
+                                            .title(tweet.getText())
+                                            .snippet(tweet.getAuthor())
+                                            .position(latitem)
+                                            .icon(bitmapUrl)
+                                    );
+                                }
+                            });
+                        } else {
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    mMap.addMarker(new MarkerOptions()
+                                            .title(tweet.getText())
+                                            .snippet(tweet.getAuthor())
+                                            .position(latitem)
+                                            .icon(bitmapDefault)
+                                    );
+                                }
+                            });
+                        }
+
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+            thread.start();
+        }
+    }
 
     public Observable<LatLng> getObservableMaps() {
         return Observable.create(new Observable.OnSubscribe<LatLng>() {
@@ -718,5 +797,45 @@ public class MainActivity extends AppCompatActivity implements
     }
 
 
+    public void moveToCity(final String nameCity) {
+        mMap.clear();
+
+        City city = new CityDAO().findByName(nameCity.trim().toUpperCase());
+        if (city == null) {
+            Thread thread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    final LatLng latLng = mGeoCoderHelper.getLatLngFromName(nameCity);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (latLng != null) {
+                                mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(latLng, 10));
+                            } else {
+                                Snackbar.make(findViewById(android.R.id.content), getString(R.string.city_not_found),
+                                        Snackbar.LENGTH_LONG).show();
+                            }
+                        }
+                    });
+                }
+            });
+            thread.start();
+        } else {
+            LatLng latlng = new LatLng(city.getLatitude(), city.getLongitude());
+            mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(latlng, 10));
+            updateMap(city);
+        }
+    }
+
+    @Override
+    public boolean onQueryTextSubmit(String query) {
+        moveToCity(query);
+        return false;
+    }
+
+    @Override
+    public boolean onQueryTextChange(String newText) {
+        return false;
+    }
 }
 

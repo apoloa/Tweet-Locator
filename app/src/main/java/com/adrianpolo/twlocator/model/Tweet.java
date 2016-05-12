@@ -15,14 +15,16 @@ public class Tweet implements Serializable, Persistable {
     private double mLatitude;
     private double mLongitude;
     private long mCity;
+    private long mIdTwitter;
 
-    public Tweet(String author, String text, String uriImage, double latitude, double longitude, long city) {
+    public Tweet(String author, String text, String uriImage, double latitude, double longitude, long city, long idTwitter) {
         this.mAuthor = author;
         this.mText = text;
         this.mUrlImage = uriImage;
         this.mLatitude = latitude;
         this.mLongitude = longitude;
         this.mCity = city;
+        this.mIdTwitter = idTwitter;
     }
 
     public String getAuthor() {
@@ -80,5 +82,13 @@ public class Tweet implements Serializable, Persistable {
 
     public void setCity(long mLocation) {
         this.mCity = mLocation;
+    }
+
+    public long getIdTwitter() {
+        return mIdTwitter;
+    }
+
+    public void setIdTwitter(long idTwitter) {
+        mIdTwitter = idTwitter;
     }
 }
