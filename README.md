@@ -29,10 +29,9 @@ Library to get the Tweets for Twitter
 ## Functionality Steps
 
 The app only downloads 5 tweets with location for moved camera event.
+
 1. The app moves to user position when app starts.
 2. Using the location extract the city and check if exists in database. If database exists, the program show the information and download the news tweets.
 The app gets the tweets for the user.
 3. Show in a map
-
----
 
