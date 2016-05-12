@@ -4,72 +4,35 @@
 
 ## What is this
 
-- This is the Android App Twitter Locator
+- This is the Android App Twitter Locator, this app can locates the twitter in a map.
 
 ## How to use this code
 
 You'll need IntelliJ Idea with Android development plugin or Android Studio 2.1 and upwards.
 We're using Gradle plugin 2.1.0
 
-## Modules
-
-This App's project is divided in several IntelliJ Modules:
-
-- api: wrapper for server-side API, JSON parsing, etc.
-- app: Android App (activities, etc.)
-
-Using different modules we can use different test suites (JUnit for pure Java code, AndroidTestCase for Android code)
-
-## Module api
-
-```
-src
-|- main
-  |-
-|- test: contains all unit tests for this module
-  |- java: code for Unit tests
-  |- resources: JSON stub data used to create stubs
-```
-
-## Module App
-
-### Package
-
-Contains the android.App subclass. This class kicks off dependency injection (see Dagger below). Also, see Dependency Injection package
-
-### Package app.di.modules
-
-Configuration for Dagger dependency injection
-
----
-
-
 ## Main Third party Libraries used
 
-### Gson
+### **RXJava And RXAndroid**
 
-For converting JSON into Model objects
+Library can permit use Observer to functionality programming.
 
-### Retrofit
+### **Twitter4j**
 
-For wrapping the REST Apis.
-[http://square.github.io/retrofit/]()
+Library to get the Tweets for Twitter
 
-### Otto
+## Nexts Steps
 
-_An enhanced event bus with emphasis on Android support_
+* Create Unit Test for the Models.
+* Simplify and Refactor the principal Activity (Main Activity).
 
-[Otto Page](http://square.github.io/otto/)
+## Functionality Steps
 
-### Butterknife
-
-### Dagger
-
-[Main Dagger page](http://square.github.io/dagger/)
-
-A [perfect introduction to Dagger](http://antonioleiva.com/dagger-android-part-2/)
-
-### Android Jobqueue
+The app only downloads 5 tweets with location for moved camera event.
+1. The app moves to user position when app starts.
+2. Using the location extract the city and check if exists in database. If database exists, the program show the information and download the news tweets.
+The app gets the tweets for the user.
+3. Show in a map
 
 ---
 
